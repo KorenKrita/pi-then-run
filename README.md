@@ -23,6 +23,8 @@ When command output exceeds 20,000 characters, the extension saves the complete 
 
 Each log lives in a new private directory at `<session-directory>/then-run-<session-id>-<random>/output.log`. On POSIX, the directory is mode `0700` and the file is `0600`. Logs remain local, survive session resume, and are not automatically deleted. They can contain sensitive command output; treat them like the session transcript.
 
+Relative `--session-dir` paths use Pi's process working directory (which can differ from the SDK session's project directory). Returned log paths are absolute.
+
 Short output and skipped commands create no archive. If saving fails, or the session has no persistent directory, the complete output stays inline with an explicit `[then_run:archive_failed]` notice and `details.then_run.archiveError`. The command's success, exit code, timeout flag, and the mutation's error state are unchanged.
 
 ## Why not SoL-Pi Action Fusion

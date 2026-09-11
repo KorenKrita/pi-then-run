@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext, MessageEndEvent } from "@earendil-works/pi-coding-agent";
 import thenRun from "../src/index.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { prepareOutput } from "../src/output.ts";
 import { MAX_OUTPUT_CHARS } from "../src/then-run.ts";
 
 type EndHandler = (event: MessageEndEvent, ctx: ExtensionContext) => Promise<{ message?: AgentMessage } | void>;
@@ -104,6 +106,20 @@ describe("then_run complete output preservation", () => {
     expect(details.then_run.exitCode).toBe(1);
     expect(result.isError).toBe(false);
     expect(await readFile(notDirectory, "utf8")).toBe("do not overwrite");
+  });
+
+  test("uses Pi's process-relative session directory even when the session project cwd differs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-then-run-test-"));
+    const configuredDir = relative(process.cwd(), root);
+    const sessionManager = SessionManager.create(join(root, "different-project-cwd"), configuredDir);
+    expect(sessionManager.getSessionDir()).toBe(configuredDir);
+    expect(sessionManager.isPersisted()).toBe(true);
+    const result = await prepareOutput(combined, { sessionManager });
+    expect(result.archiveError).toBeUndefined();
+    expect(result.fullOutputPath).toBeString();
+    expect(isAbsolute(result.fullOutputPath!)).toBe(true);
+    expect(dirname(dirname(result.fullOutputPath!))).toBe(root);
+    expect(await readFile(result.fullOutputPath!, "utf8")).toBe(combined);
   });
 
   test("keeps full output for in-memory sessions without a persistent directory", async () => {
