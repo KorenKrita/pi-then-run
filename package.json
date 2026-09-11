@@ -1,0 +1,32 @@
+{
+  "name": "pi-then-run",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Adds a then_run parameter to file-mutating tools registered by other Pi extensions (e.g. pi-hashline-edit-pro's replace/insert) so a validation command runs in the same tool call.",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/KorenKrita/pi-then-run.git" },
+  "keywords": ["pi-package", "pi-extension", "action-fusion", "hashline"],
+  "engines": { "node": ">=22" },
+  "files": ["src", "README.md"],
+  "pi": { "extensions": ["./src/index.ts"] },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.85.0 <0.86.0",
+    "@earendil-works/pi-ai": ">=0.85.0 <0.86.0",
+    "@earendil-works/pi-agent-core": ">=0.85.0 <0.86.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": { "optional": true },
+    "@earendil-works/pi-ai": { "optional": true },
+    "@earendil-works/pi-agent-core": { "optional": true }
+  },
+  "scripts": { "test": "bun test", "typecheck": "tsc --noEmit", "verify": "bun run typecheck && bun test" },
+  "devDependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@types/bun": "^1.2.0",
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  }
+}
