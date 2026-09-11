@@ -24,7 +24,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { clipOutput, compose, composeSkipped, decide, type ThenRunInput, type ToolResult } from "./then-run.ts";
+import { compose, composeSkipped, decide, type ThenRunInput, type ToolResult } from "./then-run.ts";
+import { prepareOutput } from "./output.ts";
 
 export const DEFAULT_TARGET_TOOLS = ["replace", "insert", "write", "edit"] as const;
 export const DEFAULT_TIMEOUT_SECONDS = 120;
@@ -165,7 +166,8 @@ export default function thenRun(pi: ExtensionAPI): void {
       output = err instanceof Error ? err.message : String(err);
       exitCode = null;
     }
-    const out = compose(mutation, req.command, { output: clipOutput(output), exitCode, timedOut });
+    const prepared = await prepareOutput(output, ctx);
+    const out = compose(mutation, req.command, { ...prepared, exitCode, timedOut });
     // A failed validation is information, not a tool error: the mutation itself succeeded.
     return { message: { ...m, content: out.content, details: out.details } };
   });

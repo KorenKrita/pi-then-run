@@ -53,17 +53,31 @@ export interface CommandOutcome {
   output: string;
   exitCode: number | null;
   timedOut: boolean;
+  fullOutputPath?: string;
+  archiveError?: string;
 }
 
 export function compose(mutation: ToolResult, command: string, outcome: CommandOutcome): ToolResult {
   const ok = outcome.exitCode === 0 && !outcome.timedOut;
   const marker = ok ? THEN_RUN_SUCCEEDED : THEN_RUN_FAILED;
   const status = outcome.timedOut ? "timed out" : `exit ${outcome.exitCode ?? "?"}`;
-  const block = [`${marker} $ ${command} (${status})`, outcome.output.trimEnd()].filter((s) => s.length > 0).join("\n");
+  const block = [
+    `${marker} $ ${command} (${status})`,
+    outcome.archiveError ? `[then_run:archive_failed] ${outcome.archiveError}; full output kept untruncated inline.` : "",
+    outcome.archiveError ? outcome.output : outcome.output.trimEnd(),
+    outcome.fullOutputPath ? `Full output: ${outcome.fullOutputPath}` : "",
+  ].filter((s) => s.length > 0).join("\n");
   return {
     ...mutation,
     content: [...mutation.content, { type: "text", text: `\n${block}` }],
-    details: { ...(isRecord(mutation.details) ? mutation.details : { mutation: mutation.details }), then_run: { command, exitCode: outcome.exitCode, timedOut: outcome.timedOut, succeeded: ok } },
+    details: {
+      ...(isRecord(mutation.details) ? mutation.details : { mutation: mutation.details }),
+      then_run: {
+        command, exitCode: outcome.exitCode, timedOut: outcome.timedOut, succeeded: ok,
+        ...(outcome.fullOutputPath ? { fullOutputPath: outcome.fullOutputPath } : {}),
+        ...(outcome.archiveError ? { archiveError: outcome.archiveError } : {}),
+      },
+    },
   };
 }
 

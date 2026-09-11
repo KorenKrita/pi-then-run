@@ -17,6 +17,14 @@ The tool result gains a trailing block:
 
 or `[then_run:failed] … (exit 1)` with the output, or `[then_run:skipped] … — <reason>` when nothing was written (mutation error, no-op, or an edit queued in a hashline batch — the batch's last call runs it).
 
+## Complete validation logs
+
+When command output exceeds 20,000 characters, the extension saves the complete combined stdout/stderr **before** making the head-and-tail preview. The result includes `Full output: <path>` and `details.then_run.fullOutputPath`; use `read` on that path to inspect omitted diagnostics.
+
+Each log lives in a new private directory at `<session-directory>/then-run-<session-id>-<random>/output.log`. On POSIX, the directory is mode `0700` and the file is `0600`. Logs remain local, survive session resume, and are not automatically deleted. They can contain sensitive command output; treat them like the session transcript.
+
+Short output and skipped commands create no archive. If saving fails, or the session has no persistent directory, the complete output stays inline with an explicit `[then_run:archive_failed]` notice and `details.then_run.archiveError`. The command's success, exit code, timeout flag, and the mutation's error state are unchanged.
+
 ## Why not SoL-Pi Action Fusion
 
 NVlabs/SoL-Pi's Action Fusion wraps Pi's built-in `edit`/`write`. If you use pi-hashline-edit-pro, `edit` is disabled and your edits go through `replace`/`insert`, which Action Fusion does not touch. This extension attaches to whatever tool names you configure without re-registering or forking them.
