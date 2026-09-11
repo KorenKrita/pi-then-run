@@ -1,6 +1,6 @@
 # pi-then-run
 
-Adds an optional `then_run` argument to file-mutating tools registered by other Pi extensions — most usefully [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro)'s `replace` and `insert`, plus Pi's `write` — so the validation command you would run next executes in the same tool call.
+Adds an optional `then_run` argument to file-mutating tools registered by other Pi extensions — most usefully [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro)'s `replace` and `insert`, plus Pi's `write` — so the validation command you would run next executes in the same tool call. It replaces NVlabs/SoL-Pi Action Fusion when hashline is installed (see below).
 
 ```jsonc
 // replace call
