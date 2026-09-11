@@ -23,7 +23,7 @@ NVlabs/SoL-Pi's Action Fusion wraps Pi's built-in `edit`/`write`. If you use pi-
 
 ## How it attaches (no fork, no re-registration)
 
-1. TypeBox accepts unknown keys, so `then_run` passes Pi's argument validation.
+1. On `session_start` the `then_run` property is added to the target tools' live parameter schemas (TypeBox schemas are plain mutable objects and `pi.getAllTools()` returns them by reference), so the model sees it as a real parameter. Models that trust the schema over prose — Claude does — will not use an unadvertised field.
 2. In the assistant `message_end` hook the argument is removed in place from the persisted tool call (so strict targets like hashline never see it) and parked by tool-call id.
 3. In the toolResult `message_end` hook — after every extension's `tool_result` patch — the command runs and its output is appended.
 

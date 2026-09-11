@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseThenRun, systemPromptSection } from "../src/index.ts";
+import { advertiseInSchemas, parseThenRun, systemPromptSection } from "../src/index.ts";
 import { clipOutput, compose, composeSkipped, decide, THEN_RUN_FAILED, THEN_RUN_SKIPPED, THEN_RUN_SUCCEEDED, type ToolResult } from "../src/then-run.ts";
 
 const ok = (text: string, details: unknown = { patch: "x" }): ToolResult => ({ content: [{ type: "text", text }], details });
@@ -69,5 +69,19 @@ describe("systemPromptSection", () => {
     const s = systemPromptSection(["replace", "insert"]);
     expect(s).toContain("`replace`, `insert`");
     expect(s).not.toContain("`write`");
+  });
+});
+
+describe("advertiseInSchemas", () => {
+  test("adds then_run to targeted object schemas in place, idempotently, and leaves others alone", () => {
+    const replaceParams = { type: "object", properties: { remove_from: { type: "string" } }, additionalProperties: true };
+    const readParams = { type: "object", properties: { path: { type: "string" } } };
+    const fakePi = { getAllTools: () => [{ name: "replace", parameters: replaceParams }, { name: "read", parameters: readParams }] } as unknown as Parameters<typeof advertiseInSchemas>[0];
+    expect(advertiseInSchemas(fakePi, new Set(["replace"]))).toEqual(["replace"]);
+    expect("then_run" in replaceParams.properties).toBe(true);
+    expect("then_run" in readParams.properties).toBe(false);
+    const before = JSON.stringify(replaceParams);
+    advertiseInSchemas(fakePi, new Set(["replace"]));
+    expect(JSON.stringify(replaceParams)).toBe(before);
   });
 });

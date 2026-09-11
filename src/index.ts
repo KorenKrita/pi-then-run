@@ -23,6 +23,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "@earendil-works/pi-ai";
 import { clipOutput, compose, composeSkipped, decide, type ThenRunInput, type ToolResult } from "./then-run.ts";
 
 export const DEFAULT_TARGET_TOOLS = ["replace", "insert", "write", "edit"] as const;
@@ -53,9 +54,42 @@ export function parseThenRun(input: unknown): ThenRunInput | null {
   return { command: r["command"], ...(timeout !== undefined ? { timeout } : {}) };
 }
 
+export const THEN_RUN_SCHEMA = Type.Optional(
+  Type.Object(
+    {
+      command: Type.String({ description: "Bash command to run after the mutation is written (project directory)." }),
+      timeout: Type.Optional(Type.Number({ description: `Seconds before the command is killed (default ${DEFAULT_TIMEOUT_SECONDS}, max ${MAX_TIMEOUT_SECONDS}).` })),
+    },
+    { description: "Run a validation command in this same tool call once the file is written; output is appended to the result." },
+  ),
+);
+
+/**
+ * Advertise then_run in the target tools' JSON schemas. `pi.getAllTools()` returns each
+ * definition's live `parameters` object, and TypeBox schemas are plain mutable objects,
+ * so adding a property here is what the provider sees — without re-registering the tool
+ * (which Pi reports as a conflict) or forking the target extension. Idempotent.
+ */
+export function advertiseInSchemas(pi: ExtensionAPI, tools: ReadonlySet<string>): string[] {
+  const patched: string[] = [];
+  for (const t of pi.getAllTools()) {
+    if (!tools.has(t.name)) continue;
+    const params = t.parameters as { type?: string; properties?: Record<string, unknown> } | undefined;
+    if (!params || params.type !== "object") continue;
+    params.properties ??= {};
+    if (!("then_run" in params.properties)) params.properties["then_run"] = THEN_RUN_SCHEMA;
+    patched.push(t.name);
+  }
+  return patched;
+}
+
 export default function thenRun(pi: ExtensionAPI): void {
   const config = DEFAULT_CONFIG;
   const targets = new Set(config.tools);
+
+  pi.on("session_start", async () => {
+    advertiseInSchemas(pi, targets);
+  });
 
   pi.on("before_agent_start", async (event) => {
     // Only advertise tools that are actually active in this session.
