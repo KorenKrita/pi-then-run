@@ -37,6 +37,8 @@ export interface Config {
   defaultTimeoutSeconds: number;
 }
 
+const SECTION = "then_run";
+
 export const DEFAULT_CONFIG: Config = { tools: DEFAULT_TARGET_TOOLS, defaultTimeoutSeconds: DEFAULT_TIMEOUT_SECONDS };
 
 export function systemPromptSection(tools: readonly string[]): string {
@@ -96,8 +98,16 @@ export default function thenRun(pi: ExtensionAPI): void {
     // Only advertise tools that are actually active in this session.
     const active = new Set(pi.getActiveTools());
     const present = config.tools.filter((t) => active.has(t));
-    if (present.length === 0) return undefined;
-    return { systemPrompt: `${event.systemPrompt}\n\n${systemPromptSection(present)}` };
+    const options = event.systemPromptOptions;
+    // An earlier handler forced the whole prompt: sections are not rendered then, so append to it.
+    if (options.forceSystemPrompt !== undefined) {
+      return present.length === 0 ? undefined : { systemPrompt: `${options.forceSystemPrompt}\n\n${systemPromptSection(present)}` };
+    }
+    // A structured section (Pi >= 0.86) keeps later extensions' sections and is recorded as a
+    // transcript delta instead of replacing the whole prompt.
+    const { [SECTION]: _previous, ...others } = options.sections ?? {};
+    options.sections = present.length === 0 ? others : { ...others, [SECTION]: systemPromptSection(present) };
+    return undefined;
   });
 
   /** then_run requests parked from the assistant message until its toolResult message, keyed by toolCallId. */
