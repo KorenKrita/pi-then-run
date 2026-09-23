@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, MessageEndEvent } from "@earendil-works/pi-coding-agent";
 import thenRun from "../src/index.ts";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -32,7 +33,7 @@ function harness(sessionDir: string, execResult: ExecResult, sessionId = "test-s
     }
     return message;
   }
-  async function run(id = "call-1", details: unknown = { mutation: "preserved" }) {
+  async function run(id = "call-1", details: JsonValue = { mutation: "preserved" }) {
     await end({
       role: "assistant", content: [{ type: "toolCall", id, name: "write", arguments: { path: "virtual", content: "virtual", then_run: { command: "bun test" } } }],
       api: "openai-responses", provider: "test", model: "test", stopReason: "toolUse", timestamp: 1,

@@ -7,6 +7,7 @@
  */
 
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 
 export const THEN_RUN_SUCCEEDED = "[then_run:succeeded]";
 export const THEN_RUN_FAILED = "[then_run:failed]";
@@ -17,7 +18,7 @@ export interface ThenRunInput {
   timeout?: number;
 }
 
-export type ToolResult = AgentToolResult<unknown>;
+export type ToolResult = AgentToolResult<JsonValue | undefined>;
 
 export function resultText(result: ToolResult): string {
   return result.content
@@ -71,7 +72,7 @@ export function compose(mutation: ToolResult, command: string, outcome: CommandO
     ...mutation,
     content: [...mutation.content, { type: "text", text: `\n${block}` }],
     details: {
-      ...(isRecord(mutation.details) ? mutation.details : { mutation: mutation.details }),
+      ...baseDetails(mutation.details),
       then_run: {
         command, exitCode: outcome.exitCode, timedOut: outcome.timedOut, succeeded: ok,
         ...(outcome.fullOutputPath ? { fullOutputPath: outcome.fullOutputPath } : {}),
@@ -91,11 +92,17 @@ export function composeSkipped(mutation: ToolResult, command: string, reason: Ex
   return {
     ...mutation,
     content: [...mutation.content, { type: "text", text: `\n${THEN_RUN_SKIPPED} $ ${command} — ${why}.` }],
-    details: { ...(isRecord(mutation.details) ? mutation.details : { mutation: mutation.details }), then_run: { command, skipped: reason } },
+    details: { ...baseDetails(mutation.details), then_run: { command, skipped: reason } },
   };
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+/** The mutation's own details, wrapped when they are not an object so then_run can sit beside them. */
+function baseDetails(details: JsonValue | undefined): JsonObject {
+  if (details === undefined) return {};
+  return isRecord(details) ? details : { mutation: details };
+}
+
+function isRecord(v: JsonValue): v is JsonObject {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 

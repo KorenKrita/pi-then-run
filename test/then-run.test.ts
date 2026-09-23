@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import type { JsonValue } from "@earendil-works/pi-ai";
 import { advertiseInSchemas, parseThenRun, systemPromptSection } from "../src/index.ts";
 import { clipOutput, compose, composeSkipped, decide, THEN_RUN_FAILED, THEN_RUN_SKIPPED, THEN_RUN_SUCCEEDED, type ToolResult } from "../src/then-run.ts";
 
-const ok = (text: string, details: unknown = { patch: "x" }): ToolResult => ({ content: [{ type: "text", text }], details });
+const ok = (text: string, details: JsonValue | undefined = { patch: "x" }): ToolResult => ({ content: [{ type: "text", text }], details });
 
 describe("decide", () => {
   test("runs after a written mutation", () => {
