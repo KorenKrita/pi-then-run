@@ -51,7 +51,8 @@ When the next step after a mutation is a shell command, put that command in \`th
 - The diff still comes first in the result. If the edit is wrong, fix it and run the command again.
 - Same-file edits sent in one message commit as one batch. Put \`then_run\` on the last call of the batch. Earlier calls only queue, and their command is reported as \`[then_run:skipped]\`.
 - A failed mutation skips the command. A non-zero exit keeps the mutation.
-- The default timeout is ${DEFAULT_TIMEOUT_SECONDS} seconds. Set \`timeout\` (max ${MAX_TIMEOUT_SECONDS}) for longer commands.`;
+- The default timeout is ${DEFAULT_TIMEOUT_SECONDS} seconds. Set \`timeout\` (max ${MAX_TIMEOUT_SECONDS}) for longer commands.
+- Inside a codemode script, \`then_run\` is ignored. Call bash from the script after the edit instead.`;
 }
 
 export function parseThenRun(input: unknown): ThenRunInput | null {
