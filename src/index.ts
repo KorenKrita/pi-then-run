@@ -55,7 +55,7 @@ When the next step after a mutation is a shell command (run, build, test, typech
 - Same-file edits sent in one message commit as one batch. Put \`then_run\` on the last call of the batch. Earlier calls only queue, and their command is reported as \`[then_run:skipped]\`.
 - A failed mutation skips the command. A non-zero exit keeps the mutation.
 - The default timeout is ${DEFAULT_TIMEOUT_SECONDS} seconds. Set \`timeout\` (max ${MAX_TIMEOUT_SECONDS}) for longer commands.
-- Inside a codemode script, \`then_run\` is ignored. Call bash from the script after the edit instead.`;
+- Inside a codemode script, \`then_run\` is not run. Call bash from the script after the edit instead. A malformed \`then_run\` there (not an object with \`command\`) fails the whole call.`;
 }
 
 export function parseThenRun(input: unknown): ThenRunInput | null {
@@ -174,10 +174,17 @@ export default function thenRun(pi: ExtensionAPI): void {
     const command = ignored.get(event.toolCallId);
     if (command === undefined) return undefined;
     ignored.delete(event.toolCallId);
-    const result = event.result as { content?: unknown } | null | undefined;
+    const result = event.result as { content?: unknown; structuredContent?: unknown } | null | undefined;
     if (!result || typeof result !== "object") return undefined;
+    const notice = ignoredNotice(command);
     const content = Array.isArray(result.content) ? result.content : [];
-    result.content = [...content, { type: "text", text: ignoredNotice(command) }];
+    result.content = [...content, { type: "text", text: notice }];
+    // A tool with outputSchema hands the script its structuredContent, not the text
+    // (codemode toScriptValue). hashline's edit results carry a `warnings` array there.
+    const structured = result.structuredContent as { warnings?: unknown } | undefined;
+    if (structured && typeof structured === "object" && Array.isArray(structured.warnings)) {
+      structured.warnings = [...structured.warnings, notice];
+    }
     return undefined;
   });
 

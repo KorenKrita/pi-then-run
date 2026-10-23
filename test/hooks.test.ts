@@ -32,6 +32,17 @@ test("a then_run on a nested call (e.g. from a codemode script) is stripped and 
   expect(result.content).toEqual([text, notice]);
 });
 
+test("a nested call whose result has structuredContent.warnings gets the notice there too", async () => {
+  const emit = load();
+  const input: Record<string, unknown> = { remove_from: "abcd", then_run: { command: "bun test" } };
+  await emit("tool_call", { type: "tool_call", toolName: "replace", toolCallId: "c1/1", parentToolCallId: "c1", input });
+  const result = { content: [text], structuredContent: { ok: true, warnings: ["w"] }, details: {} };
+  await emit("tool_execution_end", { type: "tool_execution_end", toolName: "replace", toolCallId: "c1/1", parentToolCallId: "c1", result, isError: false });
+  const notice = `\n${THEN_RUN_IGNORED} $ bun test — called from a script; run the command with bash from the script.`;
+  expect(result.structuredContent.warnings).toEqual(["w", notice]);
+  expect(result.content).toEqual([text, { type: "text", text: notice }]);
+});
+
 test("a top-level call gets no ignored notice", async () => {
   const emit = load();
   const input: Record<string, unknown> = { path: "a.ts", then_run: { command: "bun test" } };
