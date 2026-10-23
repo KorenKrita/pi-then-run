@@ -44,7 +44,14 @@ export const DEFAULT_CONFIG: Config = { tools: DEFAULT_TARGET_TOOLS, defaultTime
 export function systemPromptSection(tools: readonly string[]): string {
   return `## then_run
 
-The file-mutating tools ${tools.map((t) => `\`${t}\``).join(", ")} accept an optional \`then_run: { "command": string, "timeout"?: seconds }\`. After the mutation is written, the command runs in the project directory and its output is appended to the same tool result, marked \`[then_run:succeeded]\` or \`[then_run:failed]\` with the exit code. Use it for the validation you would run next anyway — tests, typecheck, lint — so the edit and its check cost one round instead of two. When the mutation fails or is only queued in a batch, the command is not run and the result says \`[then_run:skipped]\` with the reason; run it from the batch's last call instead.`;
+The file-mutating tools ${tools.map((t) => `\`${t}\``).join(", ")} accept \`then_run: { "command": string, "timeout"?: seconds }\`. After the mutation is written, the command runs in the project directory. Its output is appended to the same tool result, below the diff, marked \`[then_run:succeeded]\` or \`[then_run:failed]\` with the exit code.
+
+When the next step after a mutation is a shell command, put that command in \`then_run\`. Do not send it as a separate tool call. This covers any follow-up command: run, build, test, typecheck, lint, format, install, restart or reload a service, or inspect the result. A separate call costs one more model round that replays the whole context, so the user pays extra tokens, money, and waiting time for it. Use a separate call only when the command must run in the background, or must keep running after its timeout.
+
+- The diff still comes first in the result. If the edit is wrong, fix it and run the command again.
+- Same-file edits sent in one message commit as one batch. Put \`then_run\` on the last call of the batch. Earlier calls only queue, and their command is reported as \`[then_run:skipped]\`.
+- A failed mutation skips the command. A non-zero exit keeps the mutation.
+- The default timeout is ${DEFAULT_TIMEOUT_SECONDS} seconds. Set \`timeout\` (max ${MAX_TIMEOUT_SECONDS}) for longer commands.`;
 }
 
 export function parseThenRun(input: unknown): ThenRunInput | null {
@@ -63,7 +70,7 @@ export const THEN_RUN_SCHEMA = Type.Optional(
       command: Type.String({ description: "Bash command to run after the mutation is written (project directory)." }),
       timeout: Type.Optional(Type.Number({ description: `Seconds before the command is killed (default ${DEFAULT_TIMEOUT_SECONDS}, max ${MAX_TIMEOUT_SECONDS}).` })),
     },
-    { description: "Run a validation command in this same tool call once the file is written; output is appended to the result." },
+    { description: "The shell command to run next, right after this mutation succeeds: run, build, test, check, restart, and so on. Use it instead of a separate tool call; that saves one model round of tokens, money, and time. Skipped if the mutation fails or only queues in a batch." },
   ),
 );
 
