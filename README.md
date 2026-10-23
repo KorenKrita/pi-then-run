@@ -17,7 +17,7 @@ The tool result gains a trailing block:
 3 pass
 ```
 
-or `[then_run:failed] … (exit 1)` with the output, or `[then_run:skipped] … — <reason>` when nothing was written (mutation error, no-op, or an edit queued in a hashline batch — the batch's last call runs it).
+or `[then_run:failed] … (exit 1)` with the output, or `[then_run:skipped] … — <reason>` when nothing was written (mutation error, no-op, or an edit queued in a hashline batch — the batch's last call runs it). A call made from a codemode script never runs `then_run`; its result gets `[then_run:ignored] …` instead.
 
 ## Complete validation logs
 

@@ -12,6 +12,7 @@ import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 export const THEN_RUN_SUCCEEDED = "[then_run:succeeded]";
 export const THEN_RUN_FAILED = "[then_run:failed]";
 export const THEN_RUN_SKIPPED = "[then_run:skipped]";
+export const THEN_RUN_IGNORED = "[then_run:ignored]";
 
 export interface ThenRunInput {
   command: string;
@@ -94,6 +95,11 @@ export function composeSkipped(mutation: ToolResult, command: string, reason: Ex
     content: [...mutation.content, { type: "text", text: `\n${THEN_RUN_SKIPPED} $ ${command} — ${why}.` }],
     details: { ...baseDetails(mutation.details), then_run: { command, skipped: reason } },
   };
+}
+
+/** Notice for a then_run that another tool (e.g. a codemode script) passed: it is not run. */
+export function ignoredNotice(command: string): string {
+  return `\n${THEN_RUN_IGNORED} $ ${command} — called from a script; run the command with bash from the script.`;
 }
 
 /** The mutation's own details, wrapped when they are not an object so then_run can sit beside them. */

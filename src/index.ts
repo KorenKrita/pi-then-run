@@ -24,7 +24,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { compose, composeSkipped, decide, type ThenRunInput, type ToolResult } from "./then-run.ts";
+import { compose, composeSkipped, decide, ignoredNotice, type ThenRunInput, type ToolResult } from "./then-run.ts";
 import { prepareOutput } from "./output.ts";
 
 export const DEFAULT_TARGET_TOOLS = ["replace", "replace_match", "insert", "write", "edit"] as const;
@@ -140,20 +140,45 @@ export default function thenRun(pi: ExtensionAPI): void {
     return undefined;
   });
 
-  // Belt and braces: tool_call receives validated args cloned from the toolCall; if a
-  // then_run survived (e.g. message_end ordering surprises), remove it here too.
+  /** then_run commands passed by another tool's nested call (e.g. a codemode script), keyed by toolCallId. */
+  const ignored = new Map<string, string>();
+
+  // tool_call receives validated args cloned from the toolCall. A then_run here was not
+  // stripped by the assistant message_end hook: either a nested call made by another tool
+  // (Pi sets parentToolCallId; such calls have no transcript message, so nothing would run
+  // it) or, belt and braces, a message_end ordering surprise. Remove it either way.
   pi.on("tool_call", async (event) => {
     if (!targets.has(event.toolName)) return undefined;
     if ("then_run" in event.input) {
       const req = parseThenRun(event.input);
-      if (req && !parked.has(event.toolCallId)) parked.set(event.toolCallId, req);
+      const nested = typeof (event as { parentToolCallId?: unknown }).parentToolCallId === "string";
+      if (req && nested) ignored.set(event.toolCallId, req.command);
+      else if (req && !parked.has(event.toolCallId)) parked.set(event.toolCallId, req);
       delete (event.input as Record<string, unknown>)["then_run"];
     }
     return undefined;
   });
 
-  pi.on("agent_end", async () => parked.clear());
-  pi.on("session_start", async () => parked.clear());
+  // Tell the calling script its then_run did not run. A later extension that rebuilds the
+  // content of this result (pi-hashline-edit-pro does for replace/insert) drops the notice
+  // when it loads after this one; Pi has no later hook for nested results.
+  pi.on("tool_result", async (event) => {
+    const command = ignored.get(event.toolCallId);
+    if (command === undefined) return undefined;
+    ignored.delete(event.toolCallId);
+    const structured = (event as { structuredContent?: unknown }).structuredContent;
+    return {
+      content: [...event.content, { type: "text", text: ignoredNotice(command) }],
+      ...(structured !== undefined ? { structuredContent: structured } : {}),
+    };
+  });
+
+  const clear = async () => {
+    parked.clear();
+    ignored.clear();
+  };
+  pi.on("agent_end", clear);
+  pi.on("session_start", clear);
 
   // Run the command once the toolResult message is final (after every extension's
   // tool_result patch, including hashline's content rebuild), and append to it.
