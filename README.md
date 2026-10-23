@@ -45,7 +45,7 @@ Works in either load order relative to the target extension. Verified on Pi 0.85
 pi install git:github.com/KorenKrita/pi-then-run
 ```
 
-Targets default to `replace`, `insert`, `write`, `edit`; default timeout 120 s (max 900). No configuration file yet.
+Targets default to `replace`, `replace_match`, `insert`, `write`, `edit`; default timeout 120 s (max 900). No configuration file yet.
 
 ## Develop
 

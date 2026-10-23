@@ -27,7 +27,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { compose, composeSkipped, decide, type ThenRunInput, type ToolResult } from "./then-run.ts";
 import { prepareOutput } from "./output.ts";
 
-export const DEFAULT_TARGET_TOOLS = ["replace", "insert", "write", "edit"] as const;
+export const DEFAULT_TARGET_TOOLS = ["replace", "replace_match", "insert", "write", "edit"] as const;
 export const DEFAULT_TIMEOUT_SECONDS = 120;
 export const MAX_TIMEOUT_SECONDS = 900;
 

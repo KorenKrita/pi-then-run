@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { JsonValue } from "@earendil-works/pi-ai";
-import { advertiseInSchemas, parseThenRun, systemPromptSection } from "../src/index.ts";
+import { advertiseInSchemas, DEFAULT_TARGET_TOOLS, parseThenRun, systemPromptSection } from "../src/index.ts";
 import { clipOutput, compose, composeSkipped, decide, THEN_RUN_FAILED, THEN_RUN_SKIPPED, THEN_RUN_SUCCEEDED, type ToolResult } from "../src/then-run.ts";
 
 const ok = (text: string, details: JsonValue | undefined = { patch: "x" }): ToolResult => ({ content: [{ type: "text", text }], details });
@@ -62,6 +62,13 @@ describe("clipOutput", () => {
     expect(c.startsWith("A".repeat(40))).toBe(true);
     expect(c.endsWith("C".repeat(60))).toBe(true);
     expect(c).toContain("200 chars omitted");
+  });
+});
+
+describe("DEFAULT_TARGET_TOOLS", () => {
+  test("covers every hashline file-mutating tool", () => {
+    // A then_run on an untargeted tool is dropped silently, so every mutating tool must be listed.
+    for (const t of ["replace", "replace_match", "insert", "write", "edit"]) expect(DEFAULT_TARGET_TOOLS as readonly string[]).toContain(t);
   });
 });
 
