@@ -17,21 +17,38 @@ function load(): (name: string, event: Record<string, unknown>) => Promise<unkno
 
 const text = { type: "text", text: "diff" };
 
-test("a then_run on a nested call (e.g. from a codemode script) is stripped and reported in the result", async () => {
+test("a then_run on a nested call (e.g. from a codemode script) is stripped and reported once in the final result", async () => {
   const emit = load();
   const input: Record<string, unknown> = { path: "a.ts", then_run: { command: "bun test" } };
   await emit("tool_call", { type: "tool_call", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", input });
   expect("then_run" in input).toBe(false);
-  const [result] = await emit("tool_result", { type: "tool_result", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", input, content: [text], isError: false });
-  expect(result).toEqual({ content: [text, { type: "text", text: `\n${THEN_RUN_IGNORED} $ bun test — called from a script; run the command with bash from the script.` }] });
+  const patches = await emit("tool_result", { type: "tool_result", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", input, content: [text], isError: false });
+  expect(patches.every((r) => r === undefined)).toBe(true);
+  const result = { content: [text], details: {} };
+  await emit("tool_execution_end", { type: "tool_execution_end", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", result, isError: false });
+  const notice = { type: "text", text: `\n${THEN_RUN_IGNORED} $ bun test — called from a script; run the command with bash from the script.` };
+  expect(result.content).toEqual([text, notice]);
+  await emit("tool_execution_end", { type: "tool_execution_end", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", result, isError: false });
+  expect(result.content).toEqual([text, notice]);
 });
 
 test("a top-level call gets no ignored notice", async () => {
   const emit = load();
   const input: Record<string, unknown> = { path: "a.ts", then_run: { command: "bun test" } };
   await emit("tool_call", { type: "tool_call", toolName: "write", toolCallId: "c1", input });
-  const results = await emit("tool_result", { type: "tool_result", toolName: "write", toolCallId: "c1", input, content: [text], isError: false });
-  expect(results.every((r) => r === undefined)).toBe(true);
+  const result = { content: [text], details: {} };
+  await emit("tool_execution_end", { type: "tool_execution_end", toolName: "write", toolCallId: "c1", result, isError: false });
+  expect(result.content).toEqual([text]);
+});
+
+test("a Pi that never emits tool_execution_end for nested calls gets no notice, and agent_end drops the record", async () => {
+  const emit = load();
+  const input: Record<string, unknown> = { path: "a.ts", then_run: { command: "bun test" } };
+  await emit("tool_call", { type: "tool_call", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", input });
+  await emit("agent_end", { type: "agent_end", messages: [] });
+  const result = { content: [text], details: {} };
+  await emit("tool_execution_end", { type: "tool_execution_end", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", result, isError: false });
+  expect(result.content).toEqual([text]);
 });
 
 test("then_run: null is treated as absent on assistant messages and nested calls", async () => {
@@ -45,8 +62,9 @@ test("then_run: null is treated as absent on assistant messages and nested calls
   const input: Record<string, unknown> = { path: "a.ts", then_run: null };
   await emit("tool_call", { type: "tool_call", toolName: "write", toolCallId: "c2/1", parentToolCallId: "c2", input });
   expect("then_run" in input).toBe(false);
-  const results = await emit("tool_result", { type: "tool_result", toolName: "write", toolCallId: "c2/1", parentToolCallId: "c2", input, content: [text], isError: false });
-  expect(results.every((r) => r === undefined)).toBe(true);
+  const result = { content: [text], details: {} };
+  await emit("tool_execution_end", { type: "tool_execution_end", toolName: "write", toolCallId: "c2/1", parentToolCallId: "c2", result, isError: false });
+  expect(result.content).toEqual([text]);
 });
 
 test("a null timeout falls back to the default", async () => {

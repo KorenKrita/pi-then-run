@@ -17,7 +17,7 @@ The tool result gains a trailing block:
 3 pass
 ```
 
-or `[then_run:failed] … (exit 1)` with the output, or `[then_run:skipped] … — <reason>` when nothing was written (mutation error, no-op, or an edit queued in a hashline batch — the batch's last call runs it). A call made from a codemode script never runs `then_run`; its result gets `[then_run:ignored] …` instead.
+or `[then_run:failed] … (exit 1)` with the output, or `[then_run:skipped] … — <reason>` when nothing was written (mutation error, no-op, or an edit queued in a hashline batch — the batch's last call runs it). A call made from a codemode script never runs `then_run`; its result gets `[then_run:ignored] …` instead. The notice is added in the nested call's `tool_execution_end` event, after every extension's `tool_result` patch, so an extension that rewrites the result (hashline does) cannot drop it in either load order. Pi versions that do not emit that event for nested calls show no notice; the command still does not run.
 
 ## Complete validation logs
 

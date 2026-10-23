@@ -16,6 +16,9 @@
  * message (visible to every later reader), and the command output is appended in the
  * toolResult's message_end — after every extension's tool_result patch has been applied
  * (pi-hashline-edit-pro rebuilds replace/insert content there). Either load order works.
+ * Nested calls (codemode scripts) have no toolResult message and never run then_run; their
+ * `[then_run:ignored]` notice is added in the nested tool_execution_end, which also follows
+ * every tool_result patch.
  *
  * Nothing here depends on the target extensions' internals beyond: tool name, and
  * hashline's `details.batch.last` / `details.metrics.classification` (with the
@@ -159,18 +162,23 @@ export default function thenRun(pi: ExtensionAPI): void {
     return undefined;
   });
 
-  // Tell the calling script its then_run did not run. A later extension that rebuilds the
-  // content of this result (pi-hashline-edit-pro does for replace/insert) drops the notice
-  // when it loads after this one; Pi has no later hook for nested results.
-  pi.on("tool_result", async (event) => {
+  // Tell the calling script its then_run did not run. Not in tool_result: Pi applies those
+  // patches in load order and a returned `content` replaces the previous one, so an extension
+  // loaded later that rebuilds the content (pi-hashline-edit-pro does for replace/insert)
+  // would drop the notice. Pi (>= 1.x, NestedToolCallRunner.execute) emits a nested call's
+  // tool_execution_end after runToolCall has applied every tool_result patch, once per call,
+  // passing the very `outcome.result` it then returns to the caller (codemode's
+  // ctx.executeTool). Replacing `result.content` on that object is what the script receives.
+  // A Pi that does not emit it for nested calls shows no notice; agent_end clears the record.
+  pi.on("tool_execution_end", async (event) => {
     const command = ignored.get(event.toolCallId);
     if (command === undefined) return undefined;
     ignored.delete(event.toolCallId);
-    const structured = (event as { structuredContent?: unknown }).structuredContent;
-    return {
-      content: [...event.content, { type: "text", text: ignoredNotice(command) }],
-      ...(structured !== undefined ? { structuredContent: structured } : {}),
-    };
+    const result = event.result as { content?: unknown } | null | undefined;
+    if (!result || typeof result !== "object") return undefined;
+    const content = Array.isArray(result.content) ? result.content : [];
+    result.content = [...content, { type: "text", text: ignoredNotice(command) }];
+    return undefined;
   });
 
   const clear = async () => {
