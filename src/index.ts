@@ -46,7 +46,7 @@ export function systemPromptSection(tools: readonly string[]): string {
 
 The file-mutating tools ${tools.map((t) => `\`${t}\``).join(", ")} accept \`then_run: { "command": string, "timeout"?: seconds }\`. After the mutation is written, the command runs in the project directory. Its output is appended to the same tool result, below the diff, marked \`[then_run:succeeded]\` or \`[then_run:failed]\` with the exit code.
 
-When the next step after a mutation is a shell command, put that command in \`then_run\`. Do not send it as a separate tool call. This covers any follow-up command: run, build, test, typecheck, lint, format, install, restart or reload a service, or inspect the result. A separate call costs one more model round that replays the whole context, so the user pays extra tokens, money, and waiting time for it. Use a separate call only when the command must run in the background, or must keep running after its timeout.
+When the next step after a mutation is a shell command (run, build, test, typecheck, lint, format, install, restart a service, inspect the result), put it in \`then_run\` instead of a separate tool call. Use a separate call only when the command must run in the background or keep running past its timeout.
 
 - The diff still comes first in the result. If the edit is wrong, fix it and run the command again.
 - Same-file edits sent in one message commit as one batch. Put \`then_run\` on the last call of the batch. Earlier calls only queue, and their command is reported as \`[then_run:skipped]\`.
@@ -68,10 +68,10 @@ export function parseThenRun(input: unknown): ThenRunInput | null {
 export const THEN_RUN_SCHEMA = Type.Optional(
   Type.Object(
     {
-      command: Type.String({ description: "Bash command to run after the mutation is written (project directory)." }),
+      command: Type.String({ description: "Bash command, run in the project directory." }),
       timeout: Type.Optional(Type.Number({ description: `Seconds before the command is killed (default ${DEFAULT_TIMEOUT_SECONDS}, max ${MAX_TIMEOUT_SECONDS}).` })),
     },
-    { description: "The shell command to run next, right after this mutation succeeds: run, build, test, check, restart, and so on. Use it instead of a separate tool call; that saves one model round of tokens, money, and time. Skipped if the mutation fails or only queues in a batch." },
+    { description: "Shell command to run after this mutation is written; its output is appended to this result." },
   ),
 );
 
