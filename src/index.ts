@@ -27,7 +27,10 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { compose, composeSkipped, decide, ignoredNotice, type ThenRunInput, type ToolResult } from "./then-run.ts";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { compose, composeSkipped, decide, editedPath, ignoredNotice, type ThenRunInput, type ToolResult } from "./then-run.ts";
 import { prepareOutput } from "./output.ts";
 
 export const DEFAULT_TARGET_TOOLS = ["replace", "replace_match", "insert", "write", "edit"] as const;
@@ -47,7 +50,7 @@ export const DEFAULT_CONFIG: Config = { tools: DEFAULT_TARGET_TOOLS, defaultTime
 export function systemPromptSection(tools: readonly string[]): string {
   return `## then_run
 
-The file-mutating tools ${tools.map((t) => `\`${t}\``).join(", ")} accept \`then_run: { "command": string, "timeout"?: seconds }\`. After the mutation is written, the command runs in the project directory. Its output is appended to the same tool result, below the diff, marked \`[then_run:succeeded]\` or \`[then_run:failed]\` with the exit code.
+The file-mutating tools ${tools.map((t) => `\`${t}\``).join(", ")} accept \`then_run: { "command": string, "timeout"?: seconds }\`. After the mutation is written, the command runs in the root of the git repository that contains the edited file (the innermost repository when they are nested), or in the file's own directory when it is outside git. Write the command for that directory; do not \`cd\` into it. Its output is appended to the same tool result, below the diff, marked \`[then_run:succeeded]\` or \`[then_run:failed]\` with the exit code.
 
 When the next step after a mutation is a shell command (run, build, test, typecheck, lint, format, install, restart a service, inspect the result), put it in \`then_run\` instead of a separate tool call. Use a separate call only when the command must run in the background or keep running past its timeout.
 
@@ -71,7 +74,7 @@ export function parseThenRun(input: unknown): ThenRunInput | null {
 export const THEN_RUN_SCHEMA = Type.Optional(
   Type.Object(
     {
-      command: Type.String({ description: "Bash command, run in the project directory." }),
+      command: Type.String({ description: "Bash command. Runs in the git repository root of the edited file, or the file's directory outside git." }),
       timeout: Type.Optional(Type.Number({ description: `Seconds before the command is killed (default ${DEFAULT_TIMEOUT_SECONDS}, max ${MAX_TIMEOUT_SECONDS}).` })),
     },
     { description: "Shell command to run after this mutation is written; its output is appended to this result." },
@@ -97,6 +100,29 @@ export function advertiseInSchemas(pi: ExtensionAPI, tools: ReadonlySet<string>)
   return patched;
 }
 
+/**
+ * Where a then_run command runs: the innermost git repository root containing the edited file
+ * (`git rev-parse --show-toplevel` from the file's directory), else that directory. Without a
+ * known file, or when its directory does not exist, the session's cwd.
+ */
+export async function commandDir(pi: Pick<ExtensionAPI, "exec">, file: string | undefined, fallback: string): Promise<string> {
+  if (!file) return fallback;
+  const expanded = file === "~" || file.startsWith("~/") ? homedir() + file.slice(1) : file;
+  const dir = dirname(isAbsolute(expanded) ? expanded : resolve(fallback, expanded));
+  if (!existsSync(dir)) return fallback;
+  try {
+    const r = await pi.exec("git", ["-C", dir, "rev-parse", "--show-toplevel"], { timeout: 5_000 });
+    const root = r.code === 0 ? r.stdout.trim() : "";
+    return root || dir;
+  } catch {
+    return dir;
+  }
+}
+
+function displayPath(p: string): string {
+  const home = homedir();
+  return p === home || p.startsWith(`${home}/`) ? `~${p.slice(home.length)}` : p;
+}
 export default function thenRun(pi: ExtensionAPI): void {
   const config = DEFAULT_CONFIG;
   const targets = new Set(config.tools);
@@ -137,7 +163,7 @@ export default function thenRun(pi: ExtensionAPI): void {
       const args = block.arguments as Record<string, unknown>;
       if (!("then_run" in args)) continue;
       const req = parseThenRun(args);
-      if (req) parked.set(block.id, req);
+      if (req) parked.set(block.id, typeof args["path"] === "string" ? { ...req, path: args["path"] } : req);
       delete args["then_run"];
     }
     return undefined;
@@ -156,7 +182,7 @@ export default function thenRun(pi: ExtensionAPI): void {
       const req = parseThenRun(event.input);
       const nested = typeof (event as { parentToolCallId?: unknown }).parentToolCallId === "string";
       if (req && nested) ignored.set(event.toolCallId, req.command);
-      else if (req && !parked.has(event.toolCallId)) parked.set(event.toolCallId, req);
+      else if (req && !parked.has(event.toolCallId)) parked.set(event.toolCallId, typeof event.input["path"] === "string" ? { ...req, path: event.input["path"] as string } : req);
       delete (event.input as Record<string, unknown>)["then_run"];
     }
     return undefined;
@@ -211,12 +237,13 @@ export default function thenRun(pi: ExtensionAPI): void {
       return { message: { ...m, content: out.content, details: out.details } };
     }
 
+    const cwd = await commandDir(pi, editedPath(m.details, req.path), ctx.cwd);
     const timeoutMs = (req.timeout ?? config.defaultTimeoutSeconds) * 1000;
     let output = "";
     let exitCode: number | null = null;
     let timedOut = false;
     try {
-      const r = await pi.exec("bash", ["-lc", req.command], { cwd: ctx.cwd, timeout: timeoutMs, signal: ctx.signal });
+      const r = await pi.exec("bash", ["-lc", req.command], { cwd, timeout: timeoutMs, signal: ctx.signal });
       output = [r.stdout, r.stderr].filter((s) => s.length > 0).join(r.stdout && r.stderr ? "\n--- stderr ---\n" : "");
       exitCode = r.code;
       timedOut = r.killed;
@@ -225,7 +252,7 @@ export default function thenRun(pi: ExtensionAPI): void {
       exitCode = null;
     }
     const prepared = await prepareOutput(output, ctx);
-    const out = compose(mutation, req.command, { ...prepared, exitCode, timedOut });
+    const out = compose(mutation, req.command, { ...prepared, exitCode, timedOut, cwd, displayCwd: displayPath(cwd) });
     // A failed validation is information, not a tool error: the mutation itself succeeded.
     return { message: { ...m, content: out.content, details: out.details } };
   });

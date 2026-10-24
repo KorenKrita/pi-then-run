@@ -6,6 +6,7 @@
  * seen either produce the same behaviour.
  */
 
+import { fileURLToPath } from "node:url";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 
@@ -17,6 +18,39 @@ export const THEN_RUN_IGNORED = "[then_run:ignored]";
 export interface ThenRunInput {
   command: string;
   timeout?: number;
+  /** The mutating call's own `path` argument, when it has one. */
+  path?: string;
+}
+
+/**
+ * The file a mutation touched: hashline's `details.snapshotId` first, since replace/insert calls
+ * carry no path, then the call's `path` argument normalized the way Pi's own tools resolve it.
+ */
+export function editedPath(details: unknown, argPath: string | undefined): string | undefined {
+  const snap = (details as { snapshotId?: unknown } | null | undefined)?.snapshotId;
+  if (typeof snap === "string" && snap.startsWith("v2|")) {
+    // v2|<path>|ino|mtimeMs|ctimeMs|size — the path is not escaped and may contain "|".
+    const parts = snap.split("|");
+    const p = parts.length >= 6 ? parts.slice(1, -4).join("|") : "";
+    if (p) return p;
+  }
+  return argPath ? normalizeToolPath(argPath) : undefined;
+}
+
+const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
+
+/** Pi's tool path normalization (resolveToCwd): `file://` URLs, a leading `@`, special Unicode spaces. */
+export function normalizeToolPath(p: string): string {
+  let out = p.replace(UNICODE_SPACES, " ");
+  if (out.startsWith("file://")) {
+    try {
+      return fileURLToPath(out);
+    } catch {
+      return out;
+    }
+  }
+  if (out.startsWith("@")) out = out.slice(1);
+  return out;
 }
 
 export type ToolResult = AgentToolResult<JsonValue | undefined>;
@@ -57,6 +91,9 @@ export interface CommandOutcome {
   timedOut: boolean;
   fullOutputPath?: string;
   archiveError?: string;
+  /** Absolute directory the command ran in (details), and how the result header shows it. */
+  displayCwd?: string;
+  cwd?: string;
 }
 
 export function compose(mutation: ToolResult, command: string, outcome: CommandOutcome): ToolResult {
@@ -64,7 +101,7 @@ export function compose(mutation: ToolResult, command: string, outcome: CommandO
   const marker = ok ? THEN_RUN_SUCCEEDED : THEN_RUN_FAILED;
   const status = outcome.timedOut ? "timed out" : `exit ${outcome.exitCode ?? "?"}`;
   const block = [
-    `${marker} $ ${command} (${status})`,
+    `${marker} $ ${command} (${outcome.cwd ? `in ${outcome.displayCwd ?? outcome.cwd}, ` : ""}${status})`,
     outcome.archiveError ? `[then_run:archive_failed] ${outcome.archiveError}; full output kept untruncated inline.` : "",
     outcome.archiveError ? outcome.output : outcome.output.trimEnd(),
     outcome.fullOutputPath ? `Full output: ${outcome.fullOutputPath}` : "",
@@ -76,6 +113,7 @@ export function compose(mutation: ToolResult, command: string, outcome: CommandO
       ...baseDetails(mutation.details),
       then_run: {
         command, exitCode: outcome.exitCode, timedOut: outcome.timedOut, succeeded: ok,
+        ...(outcome.cwd ? { cwd: outcome.cwd } : {}),
         ...(outcome.fullOutputPath ? { fullOutputPath: outcome.fullOutputPath } : {}),
         ...(outcome.archiveError ? { archiveError: outcome.archiveError } : {}),
       },

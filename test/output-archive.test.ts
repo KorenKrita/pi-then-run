@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -18,9 +18,15 @@ type ExecResult = Awaited<ReturnType<ExtensionAPI["exec"]>>;
 function harness(sessionDir: string, execResult: ExecResult, sessionId = "test-session") {
   const handlers: EndHandler[] = [];
   let executions = 0;
+  const cwds: (string | undefined)[] = [];
   thenRun({
     on(name: string, handler: EndHandler) { if (name === "message_end") handlers.push(handler); },
-    async exec() { executions++; return execResult; },
+    async exec(cmd: string, _args: string[], opts: { cwd?: string }) {
+      if (cmd === "bash") cwds.push(opts.cwd);
+      if (cmd === "git") return { stdout: "", stderr: "", code: 128, killed: false }; // command-dir lookup: not a repository
+      executions++;
+      return execResult;
+    },
   } as unknown as ExtensionAPI);
   const ctx = {
     cwd: sessionDir,
@@ -43,7 +49,7 @@ function harness(sessionDir: string, execResult: ExecResult, sessionId = "test-s
     if (result.role !== "toolResult") throw new Error("Expected a tool result");
     return result;
   }
-  return { run, executions: () => executions };
+  return { run, executions: () => executions, cwds };
 }
 
 const fullStdout = `${"a".repeat(21_000)}\nUNIQUE_MIDDLE_DIAGNOSTIC 中文 🧪\n${"z".repeat(21_000)}\n`;
@@ -84,12 +90,20 @@ describe("then_run complete output preservation", () => {
     });
   }
 
+  test("runs the command in the edited file's directory from hashline's snapshotId, else the call's path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-then-run-test-"));
+    await mkdir(join(root, "sub"));
+    const h = harness(root, { stdout: "", stderr: "", code: 0, killed: false });
+    await h.run("c1", { snapshotId: `v2|${join(root, "sub", "x.ts")}|1|2|3|4` });
+    await h.run("c2"); // write's path "virtual", relative to the session cwd
+    expect(h.cwds).toEqual([join(root, "sub"), root]);
+  });
   test("does not archive an output at the clipping limit", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-then-run-test-"));
     const stdout = "x".repeat(MAX_OUTPUT_CHARS);
     const result = await harness(root, { stdout, stderr: "", code: 0, killed: false }).run();
     expect(JSON.stringify(result.content)).toContain(stdout);
-    expect(result.details).toEqual({ mutation: "preserved", then_run: { command: "bun test", exitCode: 0, timedOut: false, succeeded: true } });
+    expect(result.details).toEqual({ mutation: "preserved", then_run: { command: "bun test", cwd: root, exitCode: 0, timedOut: false, succeeded: true } });
     expect(await readdir(root)).toEqual([]);
   });
 
