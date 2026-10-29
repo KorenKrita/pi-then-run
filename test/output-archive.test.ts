@@ -41,7 +41,7 @@ function harness(sessionDir: string, execResult: ExecResult, sessionId = "test-s
   }
   async function run(id = "call-1", details: JsonValue = { mutation: "preserved" }) {
     await end({
-      role: "assistant", content: [{ type: "toolCall", id, name: "write", arguments: { path: "virtual", content: "virtual", then_run: { command: "bun test" } } }],
+      role: "assistant", content: [{ type: "toolCall", id, name: "write", arguments: { path: "virtual", content: "virtual", then_run: "bun test" } }],
       api: "openai-responses", provider: "test", model: "test", stopReason: "toolUse", timestamp: 1,
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     });

@@ -50,35 +50,48 @@ export const DEFAULT_CONFIG: Config = { tools: DEFAULT_TARGET_TOOLS, defaultTime
 export function systemPromptSection(tools: readonly string[]): string {
   return `## then_run
 
-The file-mutating tools ${tools.map((t) => `\`${t}\``).join(", ")} accept \`then_run: { "command": string, "timeout"?: seconds }\`. After the mutation is written, the command runs in the root of the git repository that contains the edited file (the innermost repository when they are nested), or in the file's own directory when it is outside git. Write the command for that directory; do not \`cd\` into it. Its output is appended to the same tool result, below the diff, marked \`[then_run:succeeded]\` or \`[then_run:failed]\` with the exit code.
+The file-mutating tools ${tools.map((t) => `\`${t}\``).join(", ")} accept \`then_run\` (a shell command string) and \`then_run_timeout\` (seconds, optional). After the mutation is written, the command runs in the root of the git repository that contains the edited file (the innermost repository when they are nested), or in the file's own directory when it is outside git. Write the command for that directory; do not \`cd\` into it. Its output is appended to the same tool result, below the diff, marked \`[then_run:succeeded]\` or \`[then_run:failed]\` with the exit code.
 
 When the next step after a mutation is a shell command (run, build, test, typecheck, lint, format, install, restart a service, inspect the result), put it in \`then_run\` instead of a separate tool call. Use a separate call only when the command must run in the background or keep running past its timeout.
 
 - The diff still comes first in the result. If the edit is wrong, fix it and run the command again.
 - Same-file edits sent in one message commit as one batch. Put \`then_run\` on the last call of the batch. Earlier calls only queue, and their command is reported as \`[then_run:skipped]\`.
 - A failed mutation skips the command. A non-zero exit keeps the mutation.
-- The default timeout is ${DEFAULT_TIMEOUT_SECONDS} seconds. Set \`timeout\` (max ${MAX_TIMEOUT_SECONDS}) for longer commands.
-- Inside a codemode script, \`then_run\` is not run. Call bash from the script after the edit instead. A malformed \`then_run\` there (not an object with \`command\`) fails the whole call.`;
+- The default timeout is ${DEFAULT_TIMEOUT_SECONDS} seconds. Set \`then_run_timeout\` (max ${MAX_TIMEOUT_SECONDS}) for longer commands.
+- Inside a codemode script, \`then_run\` is not run. Call bash from the script after the edit instead.`;
 }
+
+export const TIMEOUT_KEY = "then_run_timeout";
 
 export function parseThenRun(input: unknown): ThenRunInput | null {
   if (!input || typeof input !== "object") return null;
-  const raw = (input as Record<string, unknown>)["then_run"];
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  if (typeof r["command"] !== "string" || r["command"].trim().length === 0) return null;
-  const timeout = typeof r["timeout"] === "number" && Number.isFinite(r["timeout"]) && r["timeout"] > 0 ? Math.min(r["timeout"], MAX_TIMEOUT_SECONDS) : undefined;
-  return { command: r["command"], ...(timeout !== undefined ? { timeout } : {}) };
+  const args = input as Record<string, unknown>;
+  const command = args["then_run"];
+  if (typeof command !== "string" || command.trim().length === 0) return null;
+  const t = args[TIMEOUT_KEY];
+  const timeout = typeof t === "number" && Number.isFinite(t) && t > 0 ? Math.min(t, MAX_TIMEOUT_SECONDS) : undefined;
+  return { command, ...(timeout !== undefined ? { timeout } : {}) };
 }
 
+/** Removes both then_run keys; true when either was present. */
+function stripThenRun(args: Record<string, unknown>): boolean {
+  const had = "then_run" in args || TIMEOUT_KEY in args;
+  delete args["then_run"];
+  delete args[TIMEOUT_KEY];
+  return had;
+}
+
+// A flat string, not an object: models (Claude, Kimi) intermittently leaked their own
+// `<parameter name="command">` markup into a nested then_run object, which made the whole
+// call's arguments unparseable and dropped the edit.
 export const THEN_RUN_SCHEMA = Type.Optional(
-  Type.Object(
-    {
-      command: Type.String({ description: "Bash command. Runs in the git repository root of the edited file, or the file's directory outside git." }),
-      timeout: Type.Optional(Type.Number({ description: `Seconds before the command is killed (default ${DEFAULT_TIMEOUT_SECONDS}, max ${MAX_TIMEOUT_SECONDS}).` })),
-    },
-    { description: "Shell command to run after this mutation is written; its output is appended to this result." },
-  ),
+  Type.String({
+    description: "Shell command to run after this mutation is written; its output is appended to this result. Runs in the git repository root of the edited file, or the file's directory outside git.",
+  }),
+);
+
+export const THEN_RUN_TIMEOUT_SCHEMA = Type.Optional(
+  Type.Number({ description: `Seconds before the then_run command is killed (default ${DEFAULT_TIMEOUT_SECONDS}, max ${MAX_TIMEOUT_SECONDS}).` }),
 );
 
 /**
@@ -94,7 +107,8 @@ export function advertiseInSchemas(pi: ExtensionAPI, tools: ReadonlySet<string>)
     const params = t.parameters as { type?: string; properties?: Record<string, unknown> } | undefined;
     if (!params || params.type !== "object") continue;
     params.properties ??= {};
-    if (!("then_run" in params.properties)) params.properties["then_run"] = THEN_RUN_SCHEMA;
+    params.properties["then_run"] = THEN_RUN_SCHEMA;
+    params.properties[TIMEOUT_KEY] = THEN_RUN_TIMEOUT_SCHEMA;
     patched.push(t.name);
   }
   return patched;
@@ -161,10 +175,9 @@ export default function thenRun(pi: ExtensionAPI): void {
     for (const block of m.content) {
       if (block.type !== "toolCall" || !targets.has(block.name)) continue;
       const args = block.arguments as Record<string, unknown>;
-      if (!("then_run" in args)) continue;
       const req = parseThenRun(args);
+      if (!stripThenRun(args)) continue;
       if (req) parked.set(block.id, typeof args["path"] === "string" ? { ...req, path: args["path"] } : req);
-      delete args["then_run"];
     }
     return undefined;
   });
@@ -178,12 +191,12 @@ export default function thenRun(pi: ExtensionAPI): void {
   // it) or, belt and braces, a message_end ordering surprise. Remove it either way.
   pi.on("tool_call", async (event) => {
     if (!targets.has(event.toolName)) return undefined;
-    if ("then_run" in event.input) {
-      const req = parseThenRun(event.input);
+    const input = event.input as Record<string, unknown>;
+    const req = parseThenRun(input);
+    if (stripThenRun(input)) {
       const nested = typeof (event as { parentToolCallId?: unknown }).parentToolCallId === "string";
       if (req && nested) ignored.set(event.toolCallId, req.command);
-      else if (req && !parked.has(event.toolCallId)) parked.set(event.toolCallId, typeof event.input["path"] === "string" ? { ...req, path: event.input["path"] as string } : req);
-      delete (event.input as Record<string, unknown>)["then_run"];
+      else if (req && !parked.has(event.toolCallId)) parked.set(event.toolCallId, typeof input["path"] === "string" ? { ...req, path: input["path"] } : req);
     }
     return undefined;
   });

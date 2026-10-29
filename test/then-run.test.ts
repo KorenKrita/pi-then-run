@@ -47,10 +47,12 @@ describe("compose", () => {
 
 describe("parseThenRun", () => {
   test("accepts command with optional bounded timeout; rejects junk", () => {
-    expect(parseThenRun({ then_run: { command: "bun test" } })).toEqual({ command: "bun test" });
-    expect(parseThenRun({ then_run: { command: "x", timeout: 5000 } })).toEqual({ command: "x", timeout: 900 });
-    expect(parseThenRun({ then_run: { command: "   " } })).toBeNull();
-    expect(parseThenRun({ then_run: "bun test" })).toBeNull();
+    expect(parseThenRun({ then_run: "bun test" })).toEqual({ command: "bun test" });
+    expect(parseThenRun({ then_run: "x", then_run_timeout: 5000 })).toEqual({ command: "x", timeout: 900 });
+    expect(parseThenRun({ then_run: "x", then_run_timeout: 30 })).toEqual({ command: "x", timeout: 30 });
+    expect(parseThenRun({ then_run: "   " })).toBeNull();
+    expect(parseThenRun({ then_run: { command: "bun test" } })).toBeNull();
+    expect(parseThenRun({ then_run_timeout: 30 })).toBeNull();
     expect(parseThenRun({})).toBeNull();
   });
 });
@@ -77,17 +79,27 @@ describe("systemPromptSection", () => {
     const s = systemPromptSection(["replace", "insert"]);
     expect(s).toContain("`replace`, `insert`");
     expect(s).not.toContain("`write`");
+    expect(s).toContain("`then_run_timeout`");
+    expect(s).not.toContain('"command"');
   });
 });
 
 describe("advertiseInSchemas", () => {
   test("adds then_run to targeted object schemas in place, idempotently, and leaves others alone", () => {
-    const replaceParams = { type: "object", properties: { remove_from: { type: "string" } }, additionalProperties: true };
-    const readParams = { type: "object", properties: { path: { type: "string" } } };
+    // A nested then_run left by an earlier version must be replaced, not kept.
+    const replaceParams: { type: string; properties: Record<string, any>; additionalProperties: boolean } = {
+      type: "object",
+      properties: { remove_from: { type: "string" }, then_run: { type: "object", properties: { command: { type: "string" } } } },
+      additionalProperties: true,
+    };
+    const readParams: { type: string; properties: Record<string, any> } = { type: "object", properties: { path: { type: "string" } } };
     const fakePi = { getAllTools: () => [{ name: "replace", parameters: replaceParams }, { name: "read", parameters: readParams }] } as unknown as Parameters<typeof advertiseInSchemas>[0];
     expect(advertiseInSchemas(fakePi, new Set(["replace"]))).toEqual(["replace"]);
-    expect("then_run" in replaceParams.properties).toBe(true);
+    expect(replaceParams.properties.remove_from).toEqual({ type: "string" });
+    expect(replaceParams.properties.then_run.type).toBe("string");
+    expect(replaceParams.properties.then_run_timeout.type).toBe("number");
     expect("then_run" in readParams.properties).toBe(false);
+    expect("then_run_timeout" in readParams.properties).toBe(false);
     const before = JSON.stringify(replaceParams);
     advertiseInSchemas(fakePi, new Set(["replace"]));
     expect(JSON.stringify(replaceParams)).toBe(before);

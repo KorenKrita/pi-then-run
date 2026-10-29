@@ -7,8 +7,10 @@ Works with stock Pi too: the built-in `edit` and `write` tools are targets, so n
 ```jsonc
 // replace call
 { "remove_from": "JsEd", "remove_to": "JsEd", "replacement_lines": ["    return a + b"],
-  "then_run": { "command": "bun test", "timeout": 120 } }
+  "then_run": "bun test", "then_run_timeout": 120 }
 ```
+
+Both are flat parameters. An earlier version took `then_run: { command, timeout }`; models intermittently wrote their own `<parameter name="command">` markup inside that nested object, which made the whole call unparseable and dropped the edit.
 
 The tool result gains a trailing block:
 
@@ -17,7 +19,7 @@ The tool result gains a trailing block:
 3 pass
 ```
 
-or `[then_run:failed] … (exit 1)` with the output, or `[then_run:skipped] … — <reason>` when nothing was written (mutation error, no-op, or an edit queued in a hashline batch — the batch's last call runs it). A call made from a codemode script never runs `then_run`; its result gets `[then_run:ignored] …` instead. The notice is added in the nested call's `tool_execution_end` event, after every extension's `tool_result` patch, so an extension that rewrites the result (hashline does) cannot drop it in either load order. A tool that declares `outputSchema` hands the script its `structuredContent` instead of the text; the notice is also appended to `structuredContent.warnings` when that array exists (hashline edit results). A malformed `then_run` in a script (not an object with `command`) fails Pi's argument validation, so the whole call fails. Pi versions that do not emit that event for nested calls show no notice; the command still does not run.
+or `[then_run:failed] … (exit 1)` with the output, or `[then_run:skipped] … — <reason>` when nothing was written (mutation error, no-op, or an edit queued in a hashline batch — the batch's last call runs it). A call made from a codemode script never runs `then_run`; its result gets `[then_run:ignored] …` instead. The notice is added in the nested call's `tool_execution_end` event, after every extension's `tool_result` patch, so an extension that rewrites the result (hashline does) cannot drop it in either load order. A tool that declares `outputSchema` hands the script its `structuredContent` instead of the text; the notice is also appended to `structuredContent.warnings` when that array exists (hashline edit results). A malformed `then_run` in a script (not a string) fails Pi's argument validation, so the whole call fails. Pi versions that do not emit that event for nested calls show no notice; the command still does not run.
 
 The command runs in the root of the git repository that contains the edited file — the innermost one when repositories are nested (`git rev-parse --show-toplevel` from the file's directory, so submodules and vendored repos run in their own root). Outside git it runs in the file's directory. The file comes from hashline's `details.snapshotId` or the call's `path`; when neither is known, or the directory does not exist, it falls back to Pi's working directory. The result and `details.then_run.cwd` name the directory, so commands never need a leading `cd`.
 
@@ -37,7 +39,7 @@ NVlabs/SoL-Pi's Action Fusion wraps Pi's built-in `edit`/`write`. If you use pi-
 
 ## How it attaches (no fork, no re-registration)
 
-1. On `session_start` the `then_run` property is added to the target tools' live parameter schemas (TypeBox schemas are plain mutable objects and `pi.getAllTools()` returns them by reference), so the model sees it as a real parameter. Models that trust the schema over prose — Claude does — will not use an unadvertised field.
+1. On `session_start` the `then_run` and `then_run_timeout` properties are added to the target tools' live parameter schemas (TypeBox schemas are plain mutable objects and `pi.getAllTools()` returns them by reference), so the model sees it as a real parameter. Models that trust the schema over prose — Claude does — will not use an unadvertised field.
 2. In the assistant `message_end` hook the argument is removed in place from the persisted tool call (so strict targets like hashline never see it) and parked by tool-call id.
 3. In the toolResult `message_end` hook — after every extension's `tool_result` patch — the command runs and its output is appended.
 

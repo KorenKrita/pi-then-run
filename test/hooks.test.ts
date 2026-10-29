@@ -19,7 +19,7 @@ const text = { type: "text", text: "diff" };
 
 test("a then_run on a nested call (e.g. from a codemode script) is stripped and reported once in the final result", async () => {
   const emit = load();
-  const input: Record<string, unknown> = { path: "a.ts", then_run: { command: "bun test" } };
+  const input: Record<string, unknown> = { path: "a.ts", then_run: "bun test" };
   await emit("tool_call", { type: "tool_call", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", input });
   expect("then_run" in input).toBe(false);
   const patches = await emit("tool_result", { type: "tool_result", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", input, content: [text], isError: false });
@@ -34,7 +34,7 @@ test("a then_run on a nested call (e.g. from a codemode script) is stripped and 
 
 test("a nested call whose result has structuredContent.warnings gets the notice there too", async () => {
   const emit = load();
-  const input: Record<string, unknown> = { remove_from: "abcd", then_run: { command: "bun test" } };
+  const input: Record<string, unknown> = { remove_from: "abcd", then_run: "bun test" };
   await emit("tool_call", { type: "tool_call", toolName: "replace", toolCallId: "c1/1", parentToolCallId: "c1", input });
   const result = { content: [text], structuredContent: { ok: true, warnings: ["w"] }, details: {} };
   await emit("tool_execution_end", { type: "tool_execution_end", toolName: "replace", toolCallId: "c1/1", parentToolCallId: "c1", result, isError: false });
@@ -45,7 +45,7 @@ test("a nested call whose result has structuredContent.warnings gets the notice 
 
 test("a top-level call gets no ignored notice", async () => {
   const emit = load();
-  const input: Record<string, unknown> = { path: "a.ts", then_run: { command: "bun test" } };
+  const input: Record<string, unknown> = { path: "a.ts", then_run: "bun test" };
   await emit("tool_call", { type: "tool_call", toolName: "write", toolCallId: "c1", input });
   const result = { content: [text], details: {} };
   await emit("tool_execution_end", { type: "tool_execution_end", toolName: "write", toolCallId: "c1", result, isError: false });
@@ -54,7 +54,7 @@ test("a top-level call gets no ignored notice", async () => {
 
 test("a Pi that never emits tool_execution_end for nested calls gets no notice, and agent_end drops the record", async () => {
   const emit = load();
-  const input: Record<string, unknown> = { path: "a.ts", then_run: { command: "bun test" } };
+  const input: Record<string, unknown> = { path: "a.ts", then_run: "bun test" };
   await emit("tool_call", { type: "tool_call", toolName: "write", toolCallId: "c1/1", parentToolCallId: "c1", input });
   await emit("agent_end", { type: "agent_end", messages: [] });
   const result = { content: [text], details: {} };
@@ -80,5 +80,15 @@ test("then_run: null is treated as absent on assistant messages and nested calls
 
 test("a null timeout falls back to the default", async () => {
   const { parseThenRun } = await import("../src/index.ts");
-  expect(parseThenRun({ then_run: { command: "bun test", timeout: null } })).toEqual({ command: "bun test" });
+  expect(parseThenRun({ then_run: "bun test", then_run_timeout: null })).toEqual({ command: "bun test" });
+});
+
+test("then_run_timeout is stripped with then_run, and alone, so strict targets never see it", async () => {
+  const emit = load();
+  const args: Record<string, unknown> = { remove_from: "abcd", text: "x", then_run: "bun test", then_run_timeout: 30 };
+  await emit("message_end", { type: "message_end", message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "replace", arguments: args }] } });
+  expect(args).toEqual({ remove_from: "abcd", text: "x" });
+  const input: Record<string, unknown> = { path: "a.ts", then_run_timeout: 30 };
+  await emit("tool_call", { type: "tool_call", toolName: "write", toolCallId: "c2", input });
+  expect(input).toEqual({ path: "a.ts" });
 });

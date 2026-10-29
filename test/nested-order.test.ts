@@ -63,7 +63,7 @@ async function simulateNestedCall(exts: Ext[], args: Record<string, unknown>) {
 
 for (const [name, make] of orders) {
   test(`simulated Pi: the ignored notice survives a content rewrite (${name})`, async () => {
-    const args: Record<string, unknown> = { path: "a.ts", content: "x", then_run: { command: "bun test" } };
+    const args: Record<string, unknown> = { path: "a.ts", content: "x", then_run: "bun test" };
     const result = await simulateNestedCall([...make()], args);
     expect(result.content).toEqual([REWRITTEN, NOTICE]);
   });
@@ -114,7 +114,7 @@ async function realNestedCall(exts: Ext[], args: Record<string, unknown>) {
 
 for (const [name, make] of orders) {
   test.skipIf(!realAvailable)(`installed Pi: the ignored notice survives a content rewrite (${name})`, async () => {
-    const args: Record<string, unknown> = { path: "a.ts", content: "x", then_run: { command: "bun test" } };
+    const args: Record<string, unknown> = { path: "a.ts", content: "x", then_run: "bun test" };
     const { outcome, executedWith } = await realNestedCall([...make()], args);
     expect(executedWith).toEqual({ path: "a.ts", content: "x" });
     expect(outcome.isError).toBe(false);
